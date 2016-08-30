@@ -6,6 +6,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -14,13 +18,24 @@ import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.lang.ref.WeakReference;
+import java.util.Arrays;
+import java.util.Locale;
 import java.util.Set;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+    implements SensorEventListener {
+
+    private SensorManager mSensorManager;
+    private Sensor mRotation;
+    private float[] rotationVec = new float[3];
+    private float[] rotationMatrix = new float[9];
+    private float[] yawPitchRollVec = new float[3];
+    private int flyVal = 0;
 
     /*
      * Notifications from UsbService will be received here.
@@ -50,7 +65,9 @@ public class MainActivity extends AppCompatActivity {
     private UsbService usbService;
     private TextView display;
     private EditText editText;
+    private SeekBar seekBar;
     private MyHandler mHandler;
+
     private final ServiceConnection usbConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName arg0, IBinder arg1) {
@@ -71,8 +88,28 @@ public class MainActivity extends AppCompatActivity {
 
         mHandler = new MyHandler(this);
 
+        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        mRotation = mSensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+
         display = (TextView) findViewById(R.id.textView1);
         editText = (EditText) findViewById(R.id.editText1);
+        seekBar = (SeekBar) findViewById(R.id.seekBar);
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                flyVal = progress;
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+
+            }
+        });
         Button sendButton = (Button) findViewById(R.id.buttonSend);
         sendButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -93,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         setFilters();  // Start listening notifications from UsbService
         startService(UsbService.class, usbConnection, null); // Start UsbService(if it was not started before) and Bind it
+        mSensorManager.registerListener(this, mRotation, SensorManager.SENSOR_DELAY_GAME);
     }
 
     @Override
@@ -100,6 +138,7 @@ public class MainActivity extends AppCompatActivity {
         super.onPause();
         unregisterReceiver(mUsbReceiver);
         unbindService(usbConnection);
+        mSensorManager.unregisterListener(this);
     }
 
     private void startService(Class<?> service, ServiceConnection serviceConnection, Bundle extras) {
@@ -126,6 +165,64 @@ public class MainActivity extends AppCompatActivity {
         filter.addAction(UsbService.ACTION_USB_NOT_SUPPORTED);
         filter.addAction(UsbService.ACTION_USB_PERMISSION_NOT_GRANTED);
         registerReceiver(mUsbReceiver, filter);
+    }
+
+    private static final int MIN_SPEED = 60;
+    private static final int MAX_SPEED = 126;
+    private int getSpeed(float angle, int flyVal) {
+        if (flyVal == 0) {
+            return 0;
+        }
+        if (angle < 0) {
+            return flyVal;
+        }
+        if (angle > 1.5f) {
+            return MAX_SPEED;
+        }
+        int send = (int) (MIN_SPEED + 4 * angle * (MAX_SPEED - MIN_SPEED));
+        if (send < flyVal) {
+            return flyVal;
+        }
+        if (send > MAX_SPEED) {
+            return MAX_SPEED;
+        }
+        return send;
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+
+        if (event.sensor == mRotation) {
+            System.arraycopy(event.values, 0, rotationVec, 0, 3);
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, rotationVec);
+            SensorManager.getOrientation(rotationMatrix, yawPitchRollVec);
+
+            byte[] buffer = new byte[6];
+            int accelVal = MIN_SPEED + flyVal;
+            if (flyVal == 0) {
+                accelVal = 0;
+            }
+
+//            System.err.println("accell" + accelVal);
+            buffer[0] = 'A';
+            buffer[1] = (byte) getSpeed(-yawPitchRollVec[1], accelVal);
+            buffer[2] = (byte) getSpeed(yawPitchRollVec[2], accelVal);
+            buffer[3] = (byte) getSpeed(yawPitchRollVec[1], accelVal);
+            buffer[4] = (byte) getSpeed(-yawPitchRollVec[2], accelVal);
+            buffer[5] = ';';
+
+            if (usbService != null) { // if UsbService was correctly binded, Send data
+                usbService.write(buffer);
+            }
+//            System.err.println("data" + Arrays.toString(yawPitchRollVec));
+//            System.err.println("send" + Arrays.toString(buffer));
+
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
     }
 
     /*
