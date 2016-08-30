@@ -35,6 +35,7 @@
         android:layout_alignRight="@+id/textView1"
         android:layout_below="@+id/textView1"
         android:layout_marginTop="28dp"
+        android:text=""
         android:ems="10">
 
         <requestFocus/>
@@ -50,4 +51,18 @@
         android:layout_below="@+id/editText1"
         android:layout_marginTop="42dp"
         android:text="Send"/>
+
+    <SeekBar
+        android:id="@+id/seekBar"
+        android:layout_width="match_parent"
+        android:progressDrawable="@android:drawable/progress_horizontal"
+        android:paddingTop="10px"
+        android:paddingBottom="10px"
+        android:thumb="@android:drawable/gallery_thumb"
+        android:paddingLeft="30px"
+        android:paddingRight="30px"
+        android:minHeight="6dip"
+        android:maxHeight="6dip"
+        android:layout_height="wrap_content"
+        />
 </RelativeLayout>
